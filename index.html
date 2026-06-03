@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ANTT MVP</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --panel-2: #1f2937;
+      --line: #334155;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --brand: #38bdf8;
+      --good: #22c55e;
+      --warn: #f59e0b;
+      --bad: #ef4444;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, Segoe UI, Arial, sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(56, 189, 248, 0.14), transparent 28%),
+        radial-gradient(circle at top right, rgba(34, 197, 94, 0.10), transparent 22%),
+        var(--bg);
+      color: var(--text);
+    }
+
+    .shell {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    .hero {
+      margin-bottom: 18px;
+    }
+
+    .title {
+      margin: 0 0 8px;
+      font-size: clamp(28px, 4vw, 44px);
+      letter-spacing: -0.03em;
+    }
+
+    .subtitle {
+      margin: 0;
+      color: var(--muted);
+      max-width: 960px;
+      line-height: 1.5;
+    }
+
+    input[type="file"],
+    input[type="number"],
+    select {
+      width: 100%;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: #0b1220;
+      color: var(--text);
+      padding: 10px 12px;
+      outline: none;
+    }
+
+    .row {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      border: 0;
+      border-radius: 12px;
+      padding: 11px 16px;
+      font-weight: 700;
+      cursor: pointer;
+      color: #03111f;
+      background: linear-gradient(135deg, #38bdf8, #22c55e);
+    }
+
+    .btn.secondary {
+      color: var(--text);
+      background: #0b1220;
+      border: 1px solid var(--line);
+    }
+
+    .btn:disabled {
+      opacity: .45;
+      cursor: not-allowed;
+    }
+
+    .upload-bar {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: minmax(260px, 1fr) auto;
+      align-items: end;
+      margin-top: 18px;
+      padding: 16px;
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      border-radius: 16px;
+      background: rgba(17, 24, 39, 0.92);
+      box-shadow: 0 24px 70px rgba(0, 0, 0, 0.24);
+      backdrop-filter: blur(12px);
+    }
+
+    .upload-bar label {
+      display: block;
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
+    .upload-bar .actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+
+    .stats {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      margin-top: 16px;
+    }
+
+    .stat {
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      border-radius: 14px;
+      padding: 14px;
+    }
+
+    .stat .label { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+    .stat .value { font-size: 24px; font-weight: 800; }
+
+    .table-wrap {
+      overflow: auto;
+      border-radius: 16px;
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      background: rgba(17, 24, 39, 0.9);
+      margin-top: 18px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 1100px;
+    }
+
+    th, td {
+      text-align: left;
+      padding: 12px 10px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+      white-space: nowrap;
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      background: #0b1220;
+      z-index: 1;
+      font-size: 12px;
+      color: #bfdbfe;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+
+    tr:hover td {
+      background: rgba(56, 189, 248, 0.05);
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .pill.good { background: rgba(34, 197, 94, .14); color: #86efac; }
+    .pill.warn { background: rgba(245, 158, 11, .14); color: #fcd34d; }
+    .pill.bad { background: rgba(239, 68, 68, .14); color: #fca5a5; }
+    .pill.gray { background: rgba(148, 163, 184, .12); color: #cbd5e1; }
+
+    .notice {
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .error {
+      margin-top: 12px;
+      border: 1px solid rgba(239, 68, 68, .35);
+      background: rgba(239, 68, 68, .12);
+      color: #fecaca;
+      border-radius: 12px;
+      padding: 12px 14px;
+    }
+
+    .muted { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="hero">
+      <h1 class="title">ANTT MVP</h1>
+      <p class="subtitle">
+        Faça upload da planilha da Datasol e o resultado aparece automaticamente, já classificado em
+        <strong>frete 1</strong>, <strong>frete 2</strong> ou <strong>conforme</strong>.
+      </p>
+    </div>
+
+    <div class="upload-bar">
+      <div>
+        <label>Arquivo Excel</label>
+        <input id="fileInput" type="file" accept=".xlsx" />
+      </div>
+      <div class="actions">
+        <button class="btn secondary" id="exportBtn" disabled>Exportar Excel</button>
+      </div>
+    </div>
+
+    <div class="notice">Envie a planilha e o resultado sai automaticamente, sem ajustes manuais.</div>
+
+    <div id="message"></div>
+
+    <div class="stats">
+      <div class="stat"><div class="label">Linhas processadas</div><div class="value" id="statTotal">0</div></div>
+      <div class="stat"><div class="label">Frete 1</div><div class="value" id="statFrete1">0</div></div>
+      <div class="stat"><div class="label">Frete 2</div><div class="value" id="statFrete2">0</div></div>
+      <div class="stat"><div class="label">Conforme</div><div class="value" id="statConforme">0</div></div>
+      <div class="stat"><div class="label">Sem cálculo</div><div class="value" id="statSemCalculo">0</div></div>
+      <div class="stat"><div class="label">Diferença média</div><div class="value" id="statAvg">-</div></div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Linha</th>
+            <th>Classificação</th>
+            <th>ANTT</th>
+            <th>Empresa</th>
+            <th>Dif. R$</th>
+            <th>Dif. %</th>
+            <th>Fonte empresa</th>
+            <th>Motivo</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <tr><td colspan="8" class="muted">Envie um arquivo para começar.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+  <script type="module" src="./src/app.js"></script>
+</body>
+</html>
