@@ -33,9 +33,15 @@ export function formatPercent(value) {
 export function cellToText(value) {
   if (value == null) return '';
   if (typeof value === 'object') {
+    if (Array.isArray(value.richText)) {
+      return value.richText.map(part => part?.text ?? '').join('');
+    }
+    if (value.error) return '';
+    if (value.result != null && typeof value.result === 'object' && value.result.error) return '';
     if ('text' in value && value.text != null) return String(value.text);
     if ('result' in value && value.result != null) return String(value.result);
     if ('formula' in value && value.result != null) return String(value.result);
+    return '';
   }
   return String(value);
 }

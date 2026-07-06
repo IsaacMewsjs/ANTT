@@ -100,20 +100,29 @@ export function calculateAnttFromOfficialTables(params, tables) {
   const entryKey = `${params.loadType}-${params.dangerousLoad}`;
   const table = tables?.[tableKey] ?? {};
   let entry = table[entryKey];
+  let usedEntryKey = entryKey;
 
   if (!entry) {
     const fallbackKey = Object.keys(table).find(key => key.startsWith(`${params.loadType}-`));
-    if (fallbackKey) entry = table[fallbackKey];
+    if (fallbackKey) {
+      entry = table[fallbackKey];
+      usedEntryKey = fallbackKey;
+    }
   }
 
-  if (!entry) return null;
+  if (!entry) {
+    return { value: null, ccd: null, cc: null, tableKey, entryKey: usedEntryKey, effectiveDistance: null };
+  }
 
   const ccd = entry.ccd[params.axis];
   const cc = entry.cc[params.axis];
-  if (ccd == null || cc == null) return null;
+  if (ccd == null || cc == null) {
+    return { value: null, ccd: ccd ?? null, cc: cc ?? null, tableKey, entryKey: usedEntryKey, effectiveDistance: null };
+  }
 
   const effectiveDistance = params.emptyReturn ? params.distance * 1.92 : params.distance;
-  return effectiveDistance * ccd + cc;
+  const value = effectiveDistance * ccd + cc;
+  return { value, ccd, cc, tableKey, entryKey: usedEntryKey, effectiveDistance };
 }
 
 export function inferLoadType(text) {
@@ -174,6 +183,10 @@ export function inferOnlyTraction(...texts) {
 
 export function inferDangerousLoad(...texts) {
   return texts.some(text => normalizeText(text).includes('PERIGOS'));
+}
+
+export function inferEmptyReturn(retornoVazioText) {
+  return normalizeText(retornoVazioText).includes('RETORNO VAZIO');
 }
 
 export function deriveCompanyValue(row, selectedHeader) {

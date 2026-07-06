@@ -1,8 +1,8 @@
-import { calculateAnttFromOfficialTables, classifyDifference, deriveCompanyValue, inferAxis, inferDangerousLoad, inferLoadType, inferOnlyTraction, loadOfficialAnttTables, selectTableKey } from './antt.js';
+import { calculateAnttFromOfficialTables, classifyDifference, deriveCompanyValue, inferAxis, inferDangerousLoad, inferEmptyReturn, inferLoadType, inferOnlyTraction, loadOfficialAnttTables, selectTableKey } from './antt.js';
 import { extractSheetRecords, getSheetNames, guessBaseSheet } from './excel.js';
 import { ORS_API_KEY } from './config.js';
 import { fetchOrsDistanceKm, loadIbgeCoordsMap, normalizeIbgeCode } from './distance.js';
-import { formatMoney, formatPercent } from './utils.js';
+import { formatMoney, formatPercent, parseNumber } from './utils.js';
 
 const state = {
   workbook: null,
@@ -95,7 +95,7 @@ function collectIbgePairs(records) {
 
   records.forEach(row => {
     const originCode = getIbgeCodeFromRow(row, ['IBGE CID ORG', 'IBGE CID ORIG', 'IBGE ORIG']);
-    const destCode = getIbgeCodeFromRow(row, ['IBGE CID DEST', 'IBGE DEST']);
+    const destCode = getIbgeCodeFromRow(row, ['IBGE CID DEST', 'IBGE CID DESTINO', 'IBGE DEST']);
     if (!originCode || !destCode) return;
     const key = `${originCode}|${destCode}`;
     if (!pairs.has(key)) pairs.set(key, { key, originCode, destCode });
@@ -104,27 +104,46 @@ function collectIbgePairs(records) {
   return Array.from(pairs.values());
 }
 
-async function buildDistanceLookup(records) {
+const ORS_CONCURRENCY = 15;
+
+async function buildDistanceLookup(records, onProgress) {
   const pairs = collectIbgePairs(records);
-  if (!pairs.length) return { map: new Map(), failures: 0, total: 0 };
+  if (!pairs.length) return { map: new Map(), reasons: new Map(), failures: 0, total: 0 };
 
   await loadIbgeCoordsMap();
 
   const map = new Map();
+  const reasons = new Map();
   let failures = 0;
+  let done = 0;
+  const queue = [...pairs];
 
-  for (const pair of pairs) {
-    try {
-      const km = await fetchOrsDistanceKm(pair.originCode, pair.destCode);
-      if (km == null) failures += 1;
-      map.set(pair.key, km);
-    } catch (error) {
-      failures += 1;
-      map.set(pair.key, null);
+  async function worker() {
+    while (queue.length) {
+      const pair = queue.shift();
+      try {
+        const km = await fetchOrsDistanceKm(pair.originCode, pair.destCode);
+        if (km == null) {
+          failures += 1;
+          reasons.set(pair.key, 'Rota nao encontrada pelo ORS.');
+        }
+        map.set(pair.key, km);
+      } catch (error) {
+        failures += 1;
+        map.set(pair.key, null);
+        reasons.set(pair.key, error?.code === 'MISSING_COORD'
+          ? `Coordenada IBGE ausente (${error.missingCode}).`
+          : error?.message || 'Falha ao consultar rota.');
+      }
+      done += 1;
+      onProgress?.(done, pairs.length);
     }
   }
 
-  return { map, failures, total: pairs.length };
+  const workerCount = Math.min(ORS_CONCURRENCY, queue.length);
+  await Promise.all(Array.from({ length: workerCount }, worker));
+
+  return { map, reasons, failures, total: pairs.length };
 }
 
 async function handleFile(file) {
@@ -149,37 +168,41 @@ async function handleFile(file) {
   const baseRecords = extractSheetRecords(baseWorksheet);
   const officialTables = await loadOfficialAnttTables();
 
-  showMessage('Calculando KM por IBGE. Isso pode levar alguns minutos.');
-  const distanceLookup = await buildDistanceLookup(baseRecords);
-  if (distanceLookup.total === 0) {
-    throw new Error('Nao encontrei IBGE CID ORG/IBGE CID DEST na planilha.');
-  }
+  showMessage('Calculando KM via ORS. Isso pode levar alguns minutos.');
+  const distanceLookup = await buildDistanceLookup(baseRecords, (done, total) => {
+    showMessage(`Calculando KM via ORS... ${done}/${total} rotas.`);
+  });
 
   const rows = [];
   const belowThreshold = 50;
   const aboveThreshold = 50;
   const highPerformance = false;
-  const emptyReturn = false;
   const onlyTractionMode = 'auto';
 
   for (let index = 0; index < baseRecords.length; index += 1) {
     const row = baseRecords[index];
     const rowNumber = index + 2;
-    const productText = `${row['TIPO DE OPERACAO'] ?? ''} ${row.PRODUTO ?? ''} ${row.NEGÓCIO ?? ''} ${row['TIPO DE NEGOCIAÇÃO DE FRETE'] ?? ''}`;
-    const vehicleText = String(row['TIPO DE VEICULO'] ?? row.VEÍCULO ?? '');
+    const productText = `${row['TIPO CARGA'] ?? ''} ${row['TIPO DE OPERACAO'] ?? ''} ${row.PRODUTO ?? ''} ${row.NEGOCIO ?? ''} ${row['TIPO DE NEGOCIACAO DE FRETE'] ?? ''}`;
+    const vehicleText = String(row['TIPO DE VEICULO'] ?? row.VEICULO ?? '');
     const loadType = inferLoadType(productText);
-    const axis = inferAxis(vehicleText);
+    const axisFromColumn = Number(row.EIXO);
+    const axis = Number.isFinite(axisFromColumn) && axisFromColumn > 0 ? axisFromColumn : inferAxis(vehicleText);
     const dangerousLoad = inferDangerousLoad(productText, vehicleText);
     const onlyTractionVehicle = onlyTractionMode === 'auto' ? inferOnlyTraction(vehicleText, String(row.TRANSP ?? '')) : onlyTractionMode === 'true';
+    const emptyReturn = inferEmptyReturn(row['RETORNO VAZIO']);
+    const knownKm = parseNumber(row.KM);
     const originCode = getIbgeCodeFromRow(row, ['IBGE CID ORG', 'IBGE CID ORIG', 'IBGE ORIG']);
     const destCode = getIbgeCodeFromRow(row, ['IBGE CID DEST', 'IBGE CID DESTINO', 'IBGE DEST']);
     const pairKey = originCode && destCode ? `${originCode}|${destCode}` : '';
-    const distance = pairKey ? distanceLookup.map.get(pairKey) ?? null : null;
+    const orsDistance = pairKey ? distanceLookup.map.get(pairKey) ?? null : null;
+    const distance = orsDistance ?? knownKm;
+    const distanceSource = orsDistance != null ? 'ORS' : (distance != null ? 'PLANILHA' : '');
     const company = deriveCompanyValue(row, '');
     let anttValue = null;
+    let anttDebug = { ccd: null, cc: null, tableKey: selectTableKey(onlyTractionVehicle, highPerformance), entryKey: null };
 
     if (loadType != null && axis != null && distance != null) {
-      anttValue = calculateAnttFromOfficialTables({
+      const anttResult = calculateAnttFromOfficialTables({
         distance,
         axis,
         loadType,
@@ -188,6 +211,9 @@ async function handleFile(file) {
         emptyReturn,
         dangerousLoad,
       }, officialTables);
+      anttValue = anttResult.value;
+      anttDebug = anttResult;
+      anttDebug.distance = distance;
     }
 
     const result = classifyDifference(company.value, anttValue, belowThreshold, aboveThreshold);
@@ -196,13 +222,20 @@ async function handleFile(file) {
       companyValue: company.value,
       companySource: company.source,
       anttValue,
+      anttTable: anttDebug.tableKey,
+      anttEntryKey: anttDebug.entryKey,
+      anttCcd: anttDebug.ccd,
+      anttCc: anttDebug.cc,
+      anttDistanceUsed: anttDebug.distance ?? null,
+      anttDistanceSource: distanceSource,
+      anttEmptyReturnApplied: emptyReturn,
       diff: result.diff,
       diffPct: result.diffPct,
       classification: result.classification,
       reason: !loadType
         ? 'Nao identifiquei o tipo de carga.'
         : distance == null
-          ? 'Nao consegui calcular KM via IBGE.'
+          ? (pairKey && distanceLookup.reasons.get(pairKey)) || 'Nao consegui calcular KM via IBGE.'
           : anttValue == null
             ? `Sem taxa ANTT para ${loadType}/${axis ?? '-'} (tabela ${selectTableKey(onlyTractionVehicle, highPerformance)}, perigosa=${dangerousLoad}, tracao=${onlyTractionVehicle}).`
             : company.value == null
@@ -230,6 +263,13 @@ async function exportWorkbook() {
     return {
       ...row,
       'ANTT CALCULADO': processed?.anttValue ?? '',
+      'ANTT TABELA': processed?.anttTable ?? '',
+      'ANTT CHAVE': processed?.anttEntryKey ?? '',
+      'ANTT CCD': processed?.anttCcd ?? '',
+      'ANTT CC': processed?.anttCc ?? '',
+      'ANTT KM USADO (ORS)': processed?.anttDistanceUsed ?? '',
+      'ANTT FONTE KM': processed?.anttDistanceSource ?? '',
+      'ANTT RETORNO VAZIO APLICADO': processed?.anttEmptyReturnApplied ? 'SIM' : 'NAO',
       'VALOR EMPRESA': processed?.companyValue ?? '',
       'FONTE EMPRESA': processed?.companySource ?? '',
       'DIFERENÇA R$': processed?.diff ?? '',
